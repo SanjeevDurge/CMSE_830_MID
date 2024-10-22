@@ -25,7 +25,7 @@ The goal is to create a model that can estimate the ride duration based on these
 To start, clone this repository to your local machine:
 ```bash
 
-git clone https://github.com/SanjeevDurge/NYC_trip_duration_prediction.git
+git clone https://github.com/SanjeevDurge/CMSE_830_MID.git
 
 
 
