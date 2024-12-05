@@ -710,7 +710,7 @@ def compare_models():
     st.dataframe(score_data)
 
     # Visualize feature importance for Gradient Boosting
-    st.subheader("Feature Importance from Gradient Boosting")
+    # st.subheader("Feature Importance from Gradient Boosting")
     # feature_importance = np.random.rand(10)  # This is a placeholder; use actual model feature importance here
     # feature_names = [f'Feature {i}' for i in range(10)]
 
