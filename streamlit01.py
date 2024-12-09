@@ -37,7 +37,7 @@ taxi_data = load_data()
 def goal_and_overview():
     st.title("Goal and Overview")
 
-    video_path = r"C:\Users\sanju\Downloads\cmse__nyc_project\5834557-uhd_3840_2160_24fps.mp4"
+    video_path = r"datasets\Downloads\8mb.video-Dxv-yZm5qlM5.mp4"
 
     st.video(video_path)
     st.header("Goal")
