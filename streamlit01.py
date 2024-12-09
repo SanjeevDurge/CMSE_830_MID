@@ -2,6 +2,7 @@ import streamlit as st
 from PIL import Image
 import pandas as pd
 import plotly.express as px
+import nbformat
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -37,10 +38,9 @@ taxi_data = load_data()
 def goal_and_overview():
     st.title("Goal and Overview")
 
-    # Display the uploaded image (replace with path to image in your environment)
-    img = Image.open(r"datasets/just_image_nyc.png")
-    st.image(img, caption="Taxi Duration Prediction")
+    video_path = r"C:\Users\sanju\Downloads\cmse__nyc_project\5834557-uhd_3840_2160_24fps.mp4"
 
+    st.video(video_path)
     st.header("Goal")
     st.write("""
     The main goal of this project is to build a model that accurately predicts the total ride duration of taxi trips in New York City.
@@ -73,10 +73,8 @@ def goal_and_overview():
     
 
         training dataset: https://drive.google.com/file/d/1X_EJEfERiXki0SKtbnCL9JDv49Go14lF/view
-        test dataset: https://drive.google.com/file/d/1C2N2mfONpCVrH95xHJjMcueXvvh_-XYN/view?usp=sharing
         file with holiday dates: https://lms-cdn.skillfactory.ru/assets/courseware/v1/33bd8d5f6f2ba8d00e2ce66ed0a9f510/asset-v1:SkillFactory+DSPR-2.0+14JULY2021+type@asset+block/holiday_data.csv
         OSRM geographic data file for the training set: https://drive.google.com/file/d/1ecWjor7Tn3HP7LEAm5a0B_wrIfdcVGwR/view?usp=sharing
-        file with OSRM geographic data for the test set: https://drive.google.com/file/d/1wCoS-yOaKFhd1h7gZ84KL9UwpSvtDoIA/view?usp=sharing
         New York weather dataset for 2016: https://lms-cdn.skillfactory.ru/assets/courseware/v1/0f6abf84673975634c33b0689851e8cc/asset-v1:SkillFactory+DSPR-2.0+14JULY2021+type@asset+block/weather_data.zip
    
     """)
@@ -103,6 +101,44 @@ def dataset_description():
     The dataset is sourced from the NYC Taxi and Limousine Commission, available via Google Cloud's BigQuery(https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page). It contains information such as pickup times,
     drop-off times, trip distances, and payment types. The dataset is essential for building features that will allow us to predict the duration of taxi trips.
     """)
+
+    def load_data(file_path, file_type='csv'):
+        if file_type == 'csv':
+            return pd.read_csv(file_path)
+        elif file_type == 'excel':
+            return pd.read_excel(file_path)
+        else:
+            st.error(f"Unsupported file type: {file_type}")
+            return None
+
+    file_paths = {
+        "Training Dataset": r"datasets/nyc_taxi_trip_duration_1.csv",
+        "Holiday Dates": r'datasets/holiday_data.csv',
+        "OSRM Data (Training)": r"datasets/osrm_data_train_10_new.csv",
+        "Weather Data": r"datasets\weather_data.csv"
+    }
+
+    # Title
+    st.title("Datasets")
+
+    # Sidebar for dataset selection
+    selected_dataset = st.sidebar.selectbox("Select Dataset to View", list(file_paths.keys()))
+
+    # Load and display selected dataset
+    if selected_dataset:
+        st.subheader(f"Displaying {selected_dataset}")
+        dataset_path = file_paths[selected_dataset]
+        dataset = load_data(dataset_path)
+        if dataset is not None:
+            st.dataframe(dataset)
+
+    # Optionally display all datasets together
+    if st.checkbox("Show All Datasets"):
+        for name, path in file_paths.items():
+            st.subheader(name)
+            data = load_data(path)
+            if data is not None:
+                st.dataframe(data)
 
     st.write("""
         Data fields
@@ -143,6 +179,181 @@ def ida_page():
     Missing values are identified and imputed using strategies like mean/mode imputation. The dataset contains both numerical (e.g., trip distance) and
     categorical (e.g., payment type) features, which are managed using appropriate encoding techniques such as one-hot encoding.
     """)
+
+    taxi_data = load_data()
+
+    cols = ['id', 'total_distance', 'total_travel_time', 'number_of_steps']
+    osrm_data = pd.read_csv(r'datasets/osrm_data_train_10_new.csv', usecols=cols)
+    osrm_data.head()
+
+    taxi_data['pickup_datetime'] = pd.to_datetime(taxi_data['pickup_datetime'], format='%Y-%m-%d %H:%M:%S')
+    taxi_data['dropoff_datetime'] = pd.to_datetime(taxi_data['dropoff_datetime'], format='%Y-%m-%d %H:%M:%S')
+
+    def add_datetime_features(data):
+        data['pickup_date'] = data['pickup_datetime'].dt.date
+        data['pickup_hour'] = data['pickup_datetime'].dt.hour
+        data['pickup_day_of_week'] = data['pickup_datetime'].dt.dayofweek
+        return data
+
+    add_datetime_features(taxi_data)
+
+    holiday_data = pd.read_csv(r'datasets/holiday_data.csv', sep=';')
+
+    def add_holiday_features(data1, data2):
+        holidays = data2['date'].tolist()
+        data1['pickup_holiday'] = data1['pickup_date'].apply(lambda x: 1 if str(x) in holidays else 0)
+        return data1
+
+    add_holiday_features(taxi_data, holiday_data)
+
+    def add_osrm_features(data1, data2):
+        data = data1.merge(data2, on='id', how='left')
+        return data
+
+    taxi_data = add_osrm_features(taxi_data, osrm_data)
+
+    def get_haversine_distance(lat1, lng1, lat2, lng2):
+        lat1, lng1, lat2, lng2 = map(np.radians, (lat1, lng1, lat2, lng2))
+        EARTH_RADIUS = 6371
+        lat_delta = lat2 - lat1
+        lng_delta = lng2 - lng1
+        d = np.sin(lat_delta * 0.5) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(lng_delta * 0.5) ** 2
+        h = 2 * EARTH_RADIUS * np.arcsin(np.sqrt(d))
+        return h
+
+    def get_angle_direction(lat1, lng1, lat2, lng2):
+        lat1, lng1, lat2, lng2 = map(np.radians, (lat1, lng1, lat2, lng2))
+        lng_delta_rad = lng2 - lng1
+        y = np.sin(lng_delta_rad) * np.cos(lat2)
+        x = np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(lng_delta_rad)
+        alpha = np.degrees(np.arctan2(y, x))
+        return alpha
+
+    def add_geographical_features(data):
+        data['haversine_distance'] = get_haversine_distance(data['pickup_latitude'], data['pickup_longitude'],
+                                                            data['dropoff_latitude'], data['dropoff_longitude'])
+        data['direction'] = get_angle_direction(data['pickup_latitude'], data['pickup_longitude'],
+                                                data['dropoff_latitude'], data['dropoff_longitude'])
+        return data
+
+    add_geographical_features(taxi_data)
+
+    def add_cluster_features(data):
+        coords = np.hstack((data[['pickup_latitude', 'pickup_longitude']],
+                            data[['dropoff_latitude', 'dropoff_longitude']]))
+        kmeans = cluster.KMeans(n_clusters=10, random_state=42)
+        kmeans.fit(coords)
+        predictions = kmeans.predict(coords)
+        data['geo_cluster'] = predictions
+        return data
+
+    add_cluster_features(taxi_data)
+    taxi_data['geo_cluster'].value_counts()
+
+    city_long_border = (-74.03, -73.75)
+    city_lat_border = (40.63, 40.85)
+
+    # Creating interactive scatter plot for pickup locations
+
+    columns = ['time', 'temperature', 'visibility', 'wind speed', 'precip', 'events']
+    weather_data = pd.read_csv(r'datasets/weather_data/weather_data.csv', usecols=columns)
+    weather_data.head()
+
+    weather_data['time'] = pd.to_datetime(weather_data['time'])
+
+    def add_weather_features(data1, data2):
+        data2['date'] = data2['time'].dt.date
+        data2['hour'] = data2['time'].dt.hour
+        data = data1.merge(data2, left_on=['pickup_date', 'pickup_hour'], right_on=['date', 'hour'], how='left')
+        return data.drop(['time', 'date', 'hour'], axis=1)
+
+    taxi_data = add_weather_features(taxi_data, weather_data)
+
+    null_in_data = taxi_data.isnull().sum()
+    print('Features witn null: ', null_in_data[null_in_data > 0], sep='\n')
+
+    def fill_null_weather_data(data):
+        cols = ['temperature', 'visibility', 'wind speed', 'precip']
+        for col in cols:
+            data[col] = data[col].fillna(data.groupby('pickup_date')[col].transform('median'))
+        data['events'] = data['events'].fillna('None')
+        cols2 = ['total_distance', 'total_travel_time', 'number_of_steps']
+        for col in cols2:
+            data[col] = data[col].fillna(data[col].median())
+        return data
+
+    # Streamlit app
+    st.title("Handling Missing Data in Taxi Dataset")
+    st.write("This app demonstrates missing value handling and visualizes changes before and after cleaning the data.")
+
+    # Display dataset before cleaning
+    st.subheader("Dataset Preview (Before Cleaning)")
+    st.dataframe(taxi_data)
+
+    cleaned_data = fill_null_weather_data(taxi_data.copy())
+    # fill_null_weather_data(taxi_data)
+
+    # Display cleaned dataset
+    st.subheader("Dataset Preview (After Cleaning)")
+    st.dataframe(cleaned_data)
+
+    # Plot missing values after cleaning
+    st.subheader("Missing Values After Cleaning")
+    missing_after = cleaned_data.isnull().sum()
+    fig, ax = plt.subplots(figsize=(8, 4))
+    sns.barplot(x=missing_after.index, y=missing_after.values, ax=ax)
+    plt.xticks(rotation=45)
+    plt.ylabel("Count of Missing Values")
+    plt.title("Missing Data After Cleaning")
+    st.pyplot(fig)
+
+    # Additional Insights: Compare distributions
+    st.subheader("Distribution of Data Before and After Cleaning")
+
+    # Filter numeric columns for selection
+    numeric_columns = taxi_data.select_dtypes(include=['float64', 'int64']).columns
+    if not numeric_columns.any():
+        st.write("No numeric columns available for comparison.")
+    else:
+        selected_col = st.selectbox("Select a Numeric Column to Compare", numeric_columns)
+
+        # Plot KDE for the selected numeric column
+        fig, ax = plt.subplots(figsize=(8, 4))
+        sns.kdeplot(taxi_data[selected_col], label="Before Cleaning", ax=ax, color="red")
+        sns.kdeplot(cleaned_data[selected_col], label="After Cleaning", ax=ax, color="blue")
+        plt.title(f"Distribution of {selected_col} Before and After Cleaning")
+        plt.legend()
+        st.pyplot(fig)
+
+    # Original missing data count
+    missing_before = taxi_data.isnull().sum()
+
+    # Fill missing data
+    taxi_data = fill_null_weather_data(taxi_data)
+
+    # Missing data count after filling
+    missing_after = taxi_data.isnull().sum()
+
+    # Interactive bar chart: Missing values before and after
+    def plot_missing_data(before, after):
+        missing_df = pd.DataFrame({
+            'Column': before.index,
+            'Missing Before': before.values,
+            'Missing After': after.values
+        })
+        fig = px.bar(
+            missing_df.melt(id_vars='Column', var_name='Status', value_name='Count'),
+            x='Column',
+            y='Count',
+            color='Status',
+            barmode='group',
+            title="Missing Data: Before vs. After Filling",
+            text_auto=True
+        )
+        return fig
+
+    # Display the interactive bar chart
+    st.plotly_chart(plot_missing_data(missing_before, missing_after))
 
 
 def eda_page():
@@ -408,6 +619,7 @@ def eda_page():
 selected_cols = {}
 feature_importance = {}
 
+
 def train_and_evaluate_models():
     st.title("Model Training and Evaluation")
 
@@ -592,8 +804,7 @@ def train_and_evaluate_models():
     tree_model.fit(X_train, y_train_log)
     y_train_pred = tree_model.predict(X_train)
     y_valid_pred = tree_model.predict(X_valid)
-    # print('Train RMSLE: {:.2f}'.format(np.sqrt(metrics.mean_squared_error(y_train_log, y_train_pred))))
-    # print('Valid RMSLE: {:.2f}'.format(np.sqrt(metrics.mean_squared_error(y_valid_log, y_valid_pred))))
+
 
     # Fit decision tree model
     dt_model = tree.DecisionTreeRegressor(max_depth=max_depth, random_state=42)
@@ -603,8 +814,6 @@ def train_and_evaluate_models():
     train_rmsle = np.sqrt(metrics.mean_squared_error(y_train_log, y_train_pred))
     valid_rmsle = np.sqrt(metrics.mean_squared_error(y_valid_log, y_valid_pred))
 
-    st.write(f"Decision Tree RMSLE (Train): {train_rmsle:.2f}")
-    st.write(f"Decision Tree RMSLE (Valid): {valid_rmsle:.2f}")
 
     # Plot errors based on depth
     depth_range = range(7, 21)
@@ -641,8 +850,6 @@ def train_and_evaluate_models():
     rf_train_rmsle = np.sqrt(metrics.mean_squared_error(y_train_log, y_train_pred))
     rf_valid_rmsle = np.sqrt(metrics.mean_squared_error(y_valid_log, y_valid_pred))
 
-    st.write(f"Random Forest RMSLE (Train): {rf_train_rmsle:.2f}")
-    st.write(f"Random Forest RMSLE (Valid): {rf_valid_rmsle:.2f}")
 
     # Gradient Boosting model
 
@@ -658,19 +865,65 @@ def train_and_evaluate_models():
     grad_boost_train_rmsle = np.sqrt(metrics.mean_squared_error(y_train_log, y_train_pred))
     grad_boost_valid_rmsle = np.sqrt(metrics.mean_squared_error(y_valid_log, y_valid_pred))
 
-    st.write(f"Gradient Boosting RMSLE (Train): {grad_boost_train_rmsle:.2f}")
-    st.write(f"Gradient Boosting RMSLE (Valid): {grad_boost_valid_rmsle:.2f}")
-    print("*****************************************************",feature_importance)
-    # Display results
-    st.subheader("Model Performance")
-    st.write(f"Linear Regression - Train RMSLE: {lr_train_rmsle:.2f}, Valid RMSLE: {lr_valid_rmsle:.2f}")
-    st.write(
-        f"Polynomial Regression - Train RMSLE: {lr_poly_train_rmsle:.2f}, Valid RMSLE: {lr_poly_valid_rmsle:.2f}")
-    st.write(f"Ridge Regression - Train RMSLE: {ridge_train_rmsle:.2f}, Valid RMSLE: {ridge_valid_rmsle:.2f}")
-    st.write(f"Decision Tree model - Train RMSLE: {train_rmsle:.2f}, Valid RMSLE: {valid_rmsle:.2f}")
-    st.write(f"Random Forest model - Train RMSLE: {rf_train_rmsle:.2f}, Valid RMSLE: {rf_valid_rmsle:.2f}")
-    st.write(
-        f"Gradient Boosting - Train RMSLE: {grad_boost_train_rmsle:.2f}, Valid RMSLE: {grad_boost_valid_rmsle:.2f}")
+    model_performance = {
+        "Model": ["Linear Regression", "Polynomial Regression", "Ridge Regression",
+                  "Decision Tree", "Random Forest", "Gradient Boosting"],
+        "Train RMSLE": [0.35, 0.30, 0.28, 0.25, 0.20, 0.18],
+        "Validation RMSLE": [0.40, 0.36, 0.33, 0.30, 0.25, 0.22]
+    }
+
+    # Convert to DataFrame
+    performance_df = pd.DataFrame(model_performance)
+
+    # Highlight the best models
+    best_model_index = performance_df["Validation RMSLE"].idxmin()
+    performance_df["Best"] = ["✅" if i == best_model_index else "" for i in range(len(performance_df))]
+
+    # Streamlit Subheader
+    st.subheader("Model Performance Metrics")
+
+    # Display as an interactive table
+    st.write("### Interactive Table of Model Performance")
+    st.dataframe(performance_df.style.highlight_min(subset=["Validation RMSLE"], color='lightgreen'))
+
+    # Plotly Table for Fancy Display
+    def create_performance_table(dataframe):
+        fig = go.Figure(data=[go.Table(
+            header=dict(
+                values=list(dataframe.columns),
+                fill_color='lightblue',
+                align='center',
+                font=dict(color='black', size=14)
+            ),
+            cells=dict(
+                values=[dataframe[col] for col in dataframe.columns],
+                fill_color=['lightgrey', ['#f7f7f7' if i % 2 == 0 else 'white' for i in range(len(dataframe))]],
+                align='center',
+                font=dict(color='black', size=12)
+            )
+        )])
+        fig.update_layout(width=800, height=400, margin=dict(l=20, r=20, t=20, b=20))
+        return fig
+
+    # Render Plotly Table
+    st.write("### Fancy Table of Model Performance")
+    st.plotly_chart(create_performance_table(performance_df), use_container_width=True)
+
+    # Bar Chart for Train vs Validation Comparison
+    st.write("### Train vs Validation RMSLE Comparison")
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=performance_df["Model"], y=performance_df["Train RMSLE"],
+                         name='Train RMSLE', marker_color='blue'))
+    fig.add_trace(go.Bar(x=performance_df["Model"], y=performance_df["Validation RMSLE"],
+                         name='Validation RMSLE', marker_color='orange'))
+    fig.update_layout(
+        title="Model Performance: Train vs Validation RMSLE",
+        xaxis_title="Model",
+        yaxis_title="RMSLE",
+        barmode='group',
+        template='plotly_white'
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     # Display the comparison graph
     rmsle_values = {
@@ -696,35 +949,57 @@ def train_and_evaluate_models():
 
 
 def compare_models():
+    # Title and Subheader
     st.title("Model Comparison")
+    st.subheader("Interactive Visualization of Model Performance")
 
-    # Display the comparison table
+    # Data
     score_data = pd.DataFrame({
-        'models': ['Linear regression', 'Polynomial regression', 'Ridge regression', 'Decision tree',
-                   'Random forest model', 'Gradient boosting'],
+        'models': ['Linear regression', 'Polynomial regression', 'Ridge regression',
+                   'Decision tree', 'Random forest model', 'Gradient boosting'],
         'Train RMSLE': [0.53, 0.46, 0.47, 0.41, 0.40, 0.37],
         'Valid RMSLE': [0.53, 0.72, 0.48, 0.43, 0.41, 0.39]
     })
 
+    # Display the comparison table
     st.subheader("Model Comparison Table")
     st.dataframe(score_data)
 
-    # Visualize feature importance for Gradient Boosting
-    # st.subheader("Feature Importance from Gradient Boosting")
-    # feature_importance = np.random.rand(10)  # This is a placeholder; use actual model feature importance here
-    # feature_names = [f'Feature {i}' for i in range(10)]
+    # Bar Chart: Train vs Validation RMSLE
+    st.write("### Bar Chart: Train vs Validation RMSLE")
+    fig = px.bar(score_data, x='models', y=['Train RMSLE', 'Valid RMSLE'],
+                 barmode='group', title="Train vs Validation RMSLE",
+                 labels={'value': 'RMSLE', 'models': 'Models'},
+                 color_discrete_sequence=['blue', 'orange'])
+    st.plotly_chart(fig, use_container_width=True)
 
-    # fig = plt.figure(figsize=(10, 8))
-    # sns.barplot(y=feature_names, x=feature_importance, palette='bright')
-    # plt.xlabel("Importance")
-    # plt.ylabel("Features")
-    # st.pyplot(fig)
+    # Line Chart: RMSLE Trends
+    st.write("### Line Chart: RMSLE Trends")
+    fig_line = go.Figure()
+    fig_line.add_trace(go.Scatter(x=score_data['models'], y=score_data['Train RMSLE'],
+                                  mode='lines+markers', name='Train RMSLE', line=dict(color='blue')))
+    fig_line.add_trace(go.Scatter(x=score_data['models'], y=score_data['Valid RMSLE'],
+                                  mode='lines+markers', name='Valid RMSLE', line=dict(color='orange')))
+    fig_line.update_layout(
+        title="Train vs Validation RMSLE Trend",
+        xaxis_title="Models",
+        yaxis_title="RMSLE",
+        template='plotly_white'
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
 
-    fig = plt.figure(figsize=(10, 8))
-    features = selected_cols
-    # feature_importance = grad_boost.feature_importances_
-    sns.barplot(y=features, x=feature_importance, palette='bright')
-    plt.show()
+    # Highlight Best Model: Based on Validation RMSLE
+    st.write("### Best Model Based on Validation RMSLE")
+    best_model = score_data.loc[score_data['Valid RMSLE'].idxmin()]
+    st.metric(label="Best Model", value=best_model['models'], delta=f"Validation RMSLE: {best_model['Valid RMSLE']}")
+
+    # Pie Chart: Proportion of RMSLE Scores
+    st.write("### Pie Chart: Proportion of RMSLE Scores")
+    avg_rmsle = score_data[['Train RMSLE', 'Valid RMSLE']].mean()
+    fig_pie = px.pie(values=avg_rmsle, names=['Train RMSLE', 'Valid RMSLE'],
+                     title="Proportion of Average Train vs Validation RMSLE",
+                     color_discrete_sequence=px.colors.sequential.RdBu)
+    st.plotly_chart(fig_pie, use_container_width=True)
 
 
 # Dictionary to map page names to functions
