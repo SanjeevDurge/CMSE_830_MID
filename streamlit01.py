@@ -114,7 +114,7 @@ def dataset_description():
         "Training Dataset": r"datasets/nyc_taxi_trip_duration_1.csv",
         "Holiday Dates": r'datasets/holiday_data.csv',
         "OSRM Data (Training)": r"datasets/osrm_data_train_10_new.csv",
-        "Weather Data": r"datasets\weather_data.csv"
+        "Weather Data": r"datasets/weather_data.csv"
     }
 
     # Title
